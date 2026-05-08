@@ -6,13 +6,19 @@ import { DuckDBStore } from "@mastra/duckdb";
 import { MastraCompositeStore } from '@mastra/core/storage';
 import { Observability, DefaultExporter, CloudExporter, SensitiveDataFilter } from '@mastra/observability';
 import { weatherWorkflow } from './workflows/weather-workflow';
+import { industrialLeadResearchWorkflow } from './workflows/industrial-lead-research-workflow';
 import { weatherAgent } from './agents/weather-agent';
+import { marketResearchAgent } from './agents/market-research-agent';
+import { outreachDraftAgent } from './agents/outreach-draft-agent';
+import { prospectScoringAgent } from './agents/prospect-scoring-agent';
+import { scalerOutreachReviewAgent } from './agents/scaler-outreach-review-agent';
 import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } from './scorers/weather-scorer';
+import { outreachGroundingScorer } from './scorers/outreach-scorer';
 
 export const mastra = new Mastra({
-  workflows: { weatherWorkflow },
-  agents: { weatherAgent },
-  scorers: { toolCallAppropriatenessScorer, completenessScorer, translationScorer },
+  workflows: { weatherWorkflow, industrialLeadResearchWorkflow },
+  agents: { weatherAgent, marketResearchAgent, prospectScoringAgent, outreachDraftAgent, scalerOutreachReviewAgent },
+  scorers: { toolCallAppropriatenessScorer, completenessScorer, translationScorer, outreachGroundingScorer },
   storage: new MastraCompositeStore({
     id: 'composite-storage',
     default: new LibSQLStore({
