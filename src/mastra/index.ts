@@ -12,13 +12,34 @@ import { marketResearchAgent } from './agents/market-research-agent';
 import { outreachDraftAgent } from './agents/outreach-draft-agent';
 import { prospectScoringAgent } from './agents/prospect-scoring-agent';
 import { scalerOutreachReviewAgent } from './agents/scaler-outreach-review-agent';
+import { studioOutreachReviewAgent } from './agents/studio-outreach-review-agent';
 import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } from './scorers/weather-scorer';
-import { outreachGroundingScorer } from './scorers/outreach-scorer';
+import {
+  outreachBadCandidateFilterScorer,
+  outreachDiscoveryQualityScorer,
+  outreachGroundingScorer,
+  outreachLeadOutcomeScorer,
+} from './scorers/outreach-scorer';
 
 export const mastra = new Mastra({
   workflows: { weatherWorkflow, industrialLeadResearchWorkflow },
-  agents: { weatherAgent, marketResearchAgent, prospectScoringAgent, outreachDraftAgent, scalerOutreachReviewAgent },
-  scorers: { toolCallAppropriatenessScorer, completenessScorer, translationScorer, outreachGroundingScorer },
+  agents: {
+    weatherAgent,
+    marketResearchAgent,
+    prospectScoringAgent,
+    outreachDraftAgent,
+    scalerOutreachReviewAgent,
+    studioOutreachReviewAgent,
+  },
+  scorers: {
+    toolCallAppropriatenessScorer,
+    completenessScorer,
+    translationScorer,
+    outreachGroundingScorer,
+    outreachDiscoveryQualityScorer,
+    outreachLeadOutcomeScorer,
+    outreachBadCandidateFilterScorer,
+  },
   storage: new MastraCompositeStore({
     id: 'composite-storage',
     default: new LibSQLStore({

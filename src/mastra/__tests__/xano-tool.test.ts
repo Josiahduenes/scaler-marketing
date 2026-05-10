@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { normalizeSearchResponse, runWebSearch } from '../tools/web-search-tool';
-import { callXano, getXanoRequest as buildXanoRequest } from '../tools/xano-tool';
+import { callXano, getXanoMinRequestIntervalMs, getXanoRequest as buildXanoRequest } from '../tools/xano-tool';
 
 describe('Xano request mapping', () => {
   test('builds expected Xano endpoints', () => {
@@ -11,11 +11,33 @@ describe('Xano request mapping', () => {
     expect(buildXanoRequest('update-workflow-run', { workflowRunId: 'run-1', payload: { status: 'complete' } })).toEqual({
       method: 'PUT',
       path: '/workflow_runs/run-1',
-      body: { status: 'complete' },
+      body: {
+        status: 'complete',
+        accepted_count: null,
+        rejected_count: null,
+        rejected_leads_json: null,
+        summary: null,
+        error_message: null,
+        completed_at: null,
+      },
     });
     expect(buildXanoRequest('list-workflow-runs', { limit: 10 })).toEqual({
       method: 'GET',
       path: '/workflow_runs?limit=10',
+    });
+    expect(buildXanoRequest('upsert-prospect', { payload: { company_id: 1, title: 'VP of Sales', role_type: 'buyer' } })).toEqual({
+      method: 'POST',
+      path: '/prospects/upsert',
+      body: {
+        company_id: 1,
+        name: null,
+        title: 'VP of Sales',
+        role_type: 'buyer',
+        linkedin_url: null,
+        email: null,
+        confidence: 0.5,
+        source_url: null,
+      },
     });
     expect(buildXanoRequest('get-workflow-run', { workflowRunId: 'run-1' })).toEqual({
       method: 'GET',
@@ -24,7 +46,56 @@ describe('Xano request mapping', () => {
     expect(buildXanoRequest('update-outreach-draft', { draftId: 'draft-1', payload: { status: 'approved' } })).toEqual({
       method: 'PUT',
       path: '/outreach_drafts/draft-1',
-      body: { status: 'approved' },
+      body: {
+        status: 'approved',
+        reviewer_note: null,
+        revision_instruction: null,
+        updated_at: null,
+      },
+    });
+  });
+
+  test('adds explicit values for Xano optional fields that are required by deployed validation', () => {
+    expect(buildXanoRequest('create-workflow-run', { payload: { status: 'running' } })).toEqual({
+      method: 'POST',
+      path: '/workflow_runs',
+      body: {
+        input_json: {},
+        status: 'running',
+        accepted_count: 0,
+        rejected_count: 0,
+        rejected_leads_json: [],
+        summary: null,
+        error_message: 'none',
+      },
+    });
+
+    expect(
+      buildXanoRequest('create-outreach-draft', {
+        payload: {
+          company_id: 1,
+          workflow_run_id: 2,
+          body: 'Draft body',
+          subject_lines_json: undefined,
+        },
+      }),
+    ).toEqual({
+      method: 'POST',
+      path: '/outreach_drafts',
+      body: {
+        company_id: 1,
+        prospect_id: null,
+        workflow_run_id: 2,
+        subject_lines_json: null,
+        body: 'Draft body',
+        teardown_bullets_json: [],
+        personalization_json: [],
+        risk_notes_json: [],
+        draft_quality_json: {},
+        status: 'needs-review',
+        reviewer_note: null,
+        revision_instruction: null,
+      },
     });
   });
 
@@ -45,12 +116,36 @@ describe('Xano request mapping', () => {
     expect(result.configured).toBe(true);
     expect(calls[0].url).toBe('https://xano.example/api/companies/upsert');
     expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer secret-token');
-    expect(calls[0].init?.body).toBe(JSON.stringify({ name: 'Acme' }));
+    expect(calls[0].init?.body).toBe(JSON.stringify({
+      website_url: null,
+      industry: null,
+      employee_count_min: null,
+      employee_count_max: null,
+      revenue_estimate: null,
+      city: null,
+      state: null,
+      country: 'US',
+      ownership_type: null,
+      name: 'Acme',
+    }));
 
     if (originalBaseUrl === undefined) delete process.env.XANO_BASE_URL;
     else process.env.XANO_BASE_URL = originalBaseUrl;
     if (originalToken === undefined) delete process.env.XANO_API_TOKEN;
     else process.env.XANO_API_TOKEN = originalToken;
+  });
+
+  test('uses a conservative Xano free-tier request interval by default', () => {
+    const originalInterval = process.env.XANO_MIN_REQUEST_INTERVAL_MS;
+    delete process.env.XANO_MIN_REQUEST_INTERVAL_MS;
+
+    expect(getXanoMinRequestIntervalMs()).toBe(2200);
+
+    process.env.XANO_MIN_REQUEST_INTERVAL_MS = '2500';
+    expect(getXanoMinRequestIntervalMs()).toBe(2500);
+
+    if (originalInterval === undefined) delete process.env.XANO_MIN_REQUEST_INTERVAL_MS;
+    else process.env.XANO_MIN_REQUEST_INTERVAL_MS = originalInterval;
   });
 });
 

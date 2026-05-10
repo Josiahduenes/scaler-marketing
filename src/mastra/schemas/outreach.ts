@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-export const OUTREACH_RESEARCH_MODEL = 'anthropic/claude-sonnet-4-6';
-export const OUTREACH_DRAFT_MODEL = 'anthropic/claude-sonnet-4-6';
+export const OUTREACH_RESEARCH_MODEL = 'openai/gpt-5.4';
+export const OUTREACH_DRAFT_MODEL = 'openai/gpt-5.4';
 
 export const icpConfigSchema = z.object({
   segmentName: z.string(),

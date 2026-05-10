@@ -174,6 +174,13 @@ WEB_SEARCH_API_KEY=
 WEB_SEARCH_BASE_URL=
 XANO_BASE_URL=https://your-instance.xano.io/api:scaler-outreach
 XANO_API_TOKEN=
+OUTREACH_CRON_ENABLED=false
+OUTREACH_CRON=0 8 * * 1-5
+OUTREACH_CRON_TIMEZONE=America/Chicago
+OUTREACH_CRON_TARGET_COUNT=10
+OUTREACH_CRON_MAX_SEARCH_RESULTS=50
+OUTREACH_CRON_MINIMUM_FIT_SCORE=75
+OUTREACH_CRON_LOCATIONS=Houston,Dallas,Charlotte,Cleveland,Fort Worth
 ```
 
 Slack review:
@@ -255,6 +262,30 @@ High-level flow:
 9. Score draft quality.
 10. Persist results to Xano.
 11. Return review packet to Mastra Studio.
+
+## Scheduled Runs
+
+Mastra supports declarative cron schedules on workflows. The outreach workflow has an opt-in schedule configured through environment variables.
+
+Default schedule settings:
+
+```sh
+OUTREACH_CRON_ENABLED=false
+OUTREACH_CRON=0 8 * * 1-5
+OUTREACH_CRON_TIMEZONE=America/Chicago
+OUTREACH_CRON_TARGET_COUNT=10
+OUTREACH_CRON_MAX_SEARCH_RESULTS=50
+OUTREACH_CRON_MINIMUM_FIT_SCORE=75
+OUTREACH_CRON_LOCATIONS=Houston,Dallas,Charlotte,Cleveland,Fort Worth
+```
+
+Behavior:
+
+- Schedules are disabled unless `OUTREACH_CRON_ENABLED=true`.
+- When enabled, Mastra registers the schedule when the app boots.
+- Scheduled runs use the same workflow path as manual runs.
+- Scheduled runs require a long-lived Mastra process; serverless platforms will not reliably fire the built-in scheduler.
+- Scheduled runs consume model, search, page-fetch, and Xano API budget.
 
 ## Drafting Rules
 

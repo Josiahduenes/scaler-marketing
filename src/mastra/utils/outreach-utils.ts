@@ -32,6 +32,62 @@ const DISQUALIFIER_TERMS = [
   'retail',
 ];
 
+const BLOCKED_CONTENT_DOMAINS = [
+  'quora.com',
+  'reddit.com',
+  'wikipedia.org',
+  'medium.com',
+  'youtube.com',
+  'facebook.com',
+  'instagram.com',
+  'linkedin.com',
+];
+
+const BLOCKED_MARKETPLACE_DOMAINS = [
+  'machinehub.com',
+  'machinio.com',
+  'ebay.com',
+  'amazon.com',
+  'surplusrecord.com',
+  'equipnet.com',
+];
+
+const BLOCKED_DIRECTORY_DOMAINS = [
+  'agchouston.org',
+  'builtin.com',
+  'builtincharlotte.com',
+  'clutch.co',
+  'contractmanufacturingcompanies.com',
+  'crawfordthomas.com',
+  'iedagroup.com',
+  'indeed.com',
+  'machinetools.com',
+  'salezshark.com',
+  'thefabricator.com',
+  'vintagemachinery.org',
+  'weldingpros.co',
+  'ziprecruiter.com',
+  'zippia.com',
+  'zoominfo.com',
+];
+
+const NON_US_COUNTRY_TLDS = [
+  '.co.za',
+  '.co.uk',
+  '.com.au',
+  '.co.nz',
+  '.de',
+  '.fr',
+  '.it',
+  '.es',
+  '.nl',
+  '.cn',
+  '.jp',
+  '.in',
+  '.mx',
+  '.br',
+];
+
 export function normalizeDomain(input: string): string {
   const withProtocol = input.startsWith('http://') || input.startsWith('https://') ? input : `https://${input}`;
 
@@ -58,7 +114,6 @@ export function uniqueByDomain(companies: ProspectCompany[]): ProspectCompany[] 
 
 export function extractCompaniesFromSearchResults(results: WebSearchResult[], limit: number): ProspectCompany[] {
   const companies = results
-    .filter(result => !/linkedin\.com|facebook\.com|instagram\.com|youtube\.com|wikipedia\.org/i.test(result.url))
     .map(result => {
       const domain = normalizeDomain(result.url);
       const name = cleanCompanyName(result.title, domain);
@@ -70,9 +125,53 @@ export function extractCompaniesFromSearchResults(results: WebSearchResult[], li
         industry: inferIndustry(`${result.title} ${result.snippet}`),
         sourceUrls: [result.url],
       };
-    });
+    })
+    .filter(company => isLikelyProspectCompany(company));
 
   return uniqueByDomain(companies).slice(0, limit);
+}
+
+export function getCandidateDisqualifiers(company: ProspectCompany): string[] {
+  const domain = normalizeDomain(company.domain || company.website);
+  const urls = [company.website, ...company.sourceUrls].map(url => url.toLowerCase());
+  const name = company.name.toLowerCase();
+  const industry = company.industry.toLowerCase();
+  const text = `${name} ${industry} ${company.location.toLowerCase()}`;
+  const disqualifiers: string[] = [];
+
+  if (BLOCKED_CONTENT_DOMAINS.some(blocked => domain === blocked || domain.endsWith(`.${blocked}`))) {
+    disqualifiers.push('ugc-content');
+  }
+
+  if (BLOCKED_MARKETPLACE_DOMAINS.some(blocked => domain === blocked || domain.endsWith(`.${blocked}`))) {
+    disqualifiers.push('marketplace-listing');
+  }
+
+  if (BLOCKED_DIRECTORY_DOMAINS.some(blocked => domain === blocked || domain.endsWith(`.${blocked}`))) {
+    disqualifiers.push('directory-or-aggregator');
+  }
+
+  if (NON_US_COUNTRY_TLDS.some(tld => domain.endsWith(tld))) {
+    disqualifiers.push('international-only');
+  }
+
+  if (urls.some(url => /\/(listing|listings|used-machinery|used-equipment)\b|for-sale|used-[a-z0-9-]+-for-sale/i.test(url))) {
+    disqualifiers.push('not-company-homepage');
+  }
+
+  if (/^(what|how|why|where|when)\b|best examples|for sale|used [a-z0-9\s-]+ for sale/i.test(name)) {
+    disqualifiers.push('not-company-homepage');
+  }
+
+  if (/freight|import|export|logistics|shipping|forwarding/.test(text)) {
+    disqualifiers.push('wrong-company');
+  }
+
+  return [...new Set(disqualifiers)];
+}
+
+export function isLikelyProspectCompany(company: ProspectCompany): boolean {
+  return getCandidateDisqualifiers(company).length === 0;
 }
 
 export function extractPageText(html: string, maxLength = 12_000): string {
@@ -98,6 +197,9 @@ export function buildResearchEvidence(company: ProspectCompany, pageText: string
     hasAny(lower, ['case study', 'case studies', 'success story'])
       ? 'Website includes case study or proof language.'
       : 'Fetched copy did not surface case studies or proof-of-process content.',
+    hasAny(lower, ['capabilities', 'services', 'industries served', 'custom', 'engineering'])
+      ? 'Fetched pages include capabilities, services, or engineering-depth language.'
+      : 'Fetched pages did not surface much capabilities or engineering-depth language.',
   ];
 
   return {
@@ -123,6 +225,7 @@ export function scoreCompanyFit(evidence: ResearchEvidence, icpConfig: IcpConfig
   const company = evidence.company;
   const text = `${company.name} ${company.industry} ${company.location} ${evidence.summary} ${evidence.websiteObservations.join(' ')}`.toLowerCase();
   const disqualifierHits = [
+    ...getCandidateDisqualifiers(company),
     ...icpConfig.disqualifiers.filter(disqualifier => text.includes(disqualifier.toLowerCase())),
     ...DISQUALIFIER_TERMS.filter(term => text.includes(term)),
   ];
@@ -268,7 +371,22 @@ function cleanCompanyName(title: string, domain: string): string {
     .replace(/\s[-|].*$/, '')
     .replace(/\b(home|official site|website)\b/gi, '')
     .trim();
-  return cleaned || domain.split('.')[0].replace(/-/g, ' ');
+
+  if (
+    /^(about|contact us|request a quote|request a custom quote|careers|directory|areas served|service|services|products)$/i.test(cleaned) ||
+    /^(houston|dallas|charlotte|cleveland|fort worth|north carolina|texas|ohio)$/i.test(cleaned)
+  ) {
+    return humanizeDomainName(domain);
+  }
+
+  return cleaned || humanizeDomainName(domain);
+}
+
+function humanizeDomainName(domain: string): string {
+  return domain
+    .split('.')[0]
+    .replace(/-/g, ' ')
+    .replace(/\b\w/g, character => character.toUpperCase());
 }
 
 function inferLocation(text: string): string {

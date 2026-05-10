@@ -11,9 +11,10 @@ import {
   type LeadReviewPacket,
   type ProspectCompany,
   type ResearchEvidence,
+  type WebSearchResult,
 } from '../schemas/outreach';
 import { dedupeDomains, rememberProcessedDomain } from '../tools/dedupe-tool';
-import { fetchPageText } from '../tools/page-fetch-tool';
+import { buildCompanyResearchUrls, fetchPageText } from '../tools/page-fetch-tool';
 import { callXano } from '../tools/xano-tool';
 import { runWebSearch } from '../tools/web-search-tool';
 import {
@@ -47,6 +48,32 @@ const workflowStateSchema = z.object({
 
 type WorkflowState = z.infer<typeof workflowStateSchema>;
 
+const DISCOVERY_QUERY_TEMPLATES = [
+  (location: string) => `${location} industrial machinery manufacturer company website`,
+  (location: string) => `${location} industrial machinery manufacturers contact us`,
+  (location: string) => `${location} custom machine builder manufacturer`,
+];
+
+const scheduledOutreachInput = workflowInputSchema.parse({
+  targetCount: Number(process.env.OUTREACH_CRON_TARGET_COUNT || 10),
+  locations: parseCsvEnv(process.env.OUTREACH_CRON_LOCATIONS),
+  maxSearchResults: Number(process.env.OUTREACH_CRON_MAX_SEARCH_RESULTS || 50),
+  minimumFitScore: Number(process.env.OUTREACH_CRON_MINIMUM_FIT_SCORE || 75),
+});
+
+const outreachSchedule =
+  process.env.OUTREACH_CRON_ENABLED === 'true'
+    ? {
+        cron: process.env.OUTREACH_CRON || '0 8 * * 1-5',
+        timezone: process.env.OUTREACH_CRON_TIMEZONE || 'America/Chicago',
+        inputData: scheduledOutreachInput,
+        metadata: {
+          source: 'scaler-outreach-cron',
+          description: 'Scheduled Scaler industrial lead research run.',
+        },
+      }
+    : undefined;
+
 const createWorkflowRun = createStep({
   id: 'create-workflow-run',
   description: 'Create an auditable run record in Xano when configured, otherwise use the Mastra run id.',
@@ -60,13 +87,15 @@ const createWorkflowRun = createStep({
         status: 'running',
         accepted_count: 0,
         rejected_count: 0,
+        rejected_leads_json: [],
         summary: 'Industrial lead research run started.',
+        error_message: 'none',
       },
     });
     const xanoId = extractXanoId(xanoRun.data);
 
     return {
-      workflowRunId: xanoId || runId,
+      workflowRunId: xanoId !== undefined ? String(xanoId) : runId,
       input: parsedInput,
       candidates: [],
       duplicateDomains: [],
@@ -84,15 +113,21 @@ const discoverCandidateCompanies = createStep({
   outputSchema: workflowStateSchema,
   execute: async ({ inputData }) => {
     const { input } = inputData;
-    const perQueryLimit = Math.max(5, Math.ceil(input.maxSearchResults / input.locations.length));
-    const results = [];
+    const perQueryLimit = Math.max(5, Math.ceil(input.maxSearchResults / input.locations.length / DISCOVERY_QUERY_TEMPLATES.length));
+    const desiredCandidatePool = Math.min(input.maxSearchResults, input.targetCount * 3);
+    const results: WebSearchResult[] = [];
 
     for (const location of input.locations) {
-      const query = `"industrial machinery manufacturer" "${location}" "request a quote"`;
-      results.push(...(await runWebSearch(query, perQueryLimit)));
+      for (const buildQuery of DISCOVERY_QUERY_TEMPLATES) {
+        results.push(...(await runWebSearch(buildQuery(location), perQueryLimit)));
+
+        if (extractCompaniesFromSearchResults(results, desiredCandidatePool).length >= desiredCandidatePool) {
+          break;
+        }
+      }
     }
 
-    const candidates = extractCompaniesFromSearchResults(results, input.maxSearchResults);
+    const candidates = extractCompaniesFromSearchResults(results, desiredCandidatePool);
     return {
       ...inputData,
       candidates,
@@ -128,14 +163,31 @@ const researchCompanies = createStep({
     const desiredResearchCount = Math.min(inputData.candidates.length, inputData.input.targetCount * 3);
 
     for (const company of inputData.candidates.slice(0, desiredResearchCount)) {
-      let pageText = '';
-      try {
-        pageText = (await fetchPageText(company.website)).text;
-      } catch (error) {
-        pageText = `Unable to fetch website text: ${error instanceof Error ? error.message : 'unknown error'}`;
+      const pageTexts: string[] = [];
+      const fetchedUrls: string[] = [];
+
+      for (const url of buildCompanyResearchUrls(company.website)) {
+        try {
+          const page = await fetchPageText(url, 8_000);
+          if (page.status < 400 && page.text.length > 100) {
+            pageTexts.push(`Source: ${page.url}\n${page.text}`);
+            fetchedUrls.push(page.url);
+          }
+        } catch {
+          // Some company subpages will 404, redirect poorly, or block bots. Keep any pages that do fetch cleanly.
+        }
       }
 
-      researched.push(buildResearchEvidence(company, pageText));
+      const researchedCompany = {
+        ...company,
+        sourceUrls: [...new Set([...company.sourceUrls, ...fetchedUrls])],
+      };
+      const pageText =
+        pageTexts.length > 0
+          ? pageTexts.join('\n\n')
+          : `Unable to fetch usable website text from ${company.website}.`;
+
+      researched.push(buildResearchEvidence(researchedCompany, pageText));
     }
 
     return {
@@ -265,13 +317,14 @@ const persistResults = createStep({
         payload: toXanoCompany(packet.company),
       });
       const companyId = extractXanoId(companyResult.data);
+      const workflowRunIdNum = Number(inputData.workflowRunId);
 
       const prospectResult = await callXano('upsert-prospect', {
         payload: {
           company_id: companyId,
           name: packet.decisionMaker.name,
           title: packet.decisionMaker.title,
-          role_type: packet.decisionMaker.inferredRole,
+          role_type: toXanoProspectRoleType(packet.decisionMaker.inferredRole),
           linkedin_url: packet.decisionMaker.linkedInUrl,
           email: packet.decisionMaker.email,
           confidence: packet.decisionMaker.confidence,
@@ -282,7 +335,7 @@ const persistResults = createStep({
       await callXano('create-research-report', {
         payload: {
           company_id: companyId,
-          workflow_run_id: inputData.workflowRunId,
+          workflow_run_id: workflowRunIdNum,
           evidence_json: packet.research,
           source_urls_json: packet.research.evidenceUrls,
           summary: packet.research.summary,
@@ -291,21 +344,25 @@ const persistResults = createStep({
       await callXano('create-fit-score', {
         payload: {
           company_id: companyId,
-          workflow_run_id: inputData.workflowRunId,
+          workflow_run_id: workflowRunIdNum,
           score: packet.fitScore.totalScore,
           tier: packet.fitScore.tier,
           reasons_json: packet.fitScore.reasons,
           disqualifiers_json: packet.fitScore.disqualifierHits,
+          missing_data_json: packet.fitScore.missingData,
         },
       });
       await callXano('create-outreach-draft', {
         payload: {
           company_id: companyId,
           prospect_id: prospectId,
-          workflow_run_id: inputData.workflowRunId,
+          workflow_run_id: workflowRunIdNum,
           subject_lines_json: packet.draft.subjectLines,
           body: packet.draft.body,
           teardown_bullets_json: packet.draft.customTeardownBullets,
+          personalization_json: packet.draft.sourceBackedPersonalizationNotes,
+          risk_notes_json: packet.draft.riskNotes,
+          draft_quality_json: packet.draftQuality,
           status: packet.reviewStatus,
         },
       });
@@ -345,6 +402,7 @@ export const industrialLeadResearchWorkflow = createWorkflow({
   id: 'industrial-lead-research-workflow',
   inputSchema: workflowInputSchema,
   outputSchema: workflowRunResultSchema,
+  ...(outreachSchedule ? { schedule: outreachSchedule } : {}),
 })
   .then(createWorkflowRun)
   .then(discoverCandidateCompanies)
@@ -375,14 +433,30 @@ function toXanoCompany(company: ProspectCompany) {
   };
 }
 
-function extractXanoId(data: unknown): string | undefined {
+function extractXanoId(data: unknown): number | undefined {
   if (!data || typeof data !== 'object') return undefined;
   const record = data as Record<string, unknown>;
   const nested = record.data && typeof record.data === 'object' ? (record.data as Record<string, unknown>) : undefined;
   const id = record.id || nested?.id;
-  return id === undefined ? undefined : String(id);
+  if (id === undefined) return undefined;
+  const num = Number(id);
+  return isNaN(num) ? undefined : num;
 }
 
 function buildRunSummary(state: WorkflowState): string {
   return `Prepared ${state.acceptedLeads.length} lead review packet(s), rejected ${state.rejectedLeads.length} candidate(s), skipped ${state.duplicateDomains.length} duplicate domain(s).`;
+}
+
+function toXanoProspectRoleType(role: LeadReviewPacket['decisionMaker']['inferredRole']): 'buyer' | 'champion' | 'unknown' {
+  if (role === 'decision-maker') return 'buyer';
+  return role;
+}
+
+function parseCsvEnv(value: string | undefined): string[] | undefined {
+  if (!value) return undefined;
+  const items = value
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+  return items.length > 0 ? items : undefined;
 }

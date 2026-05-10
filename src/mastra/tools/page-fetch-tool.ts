@@ -19,6 +19,7 @@ export async function fetchPageText(url: string, maxLength = 12_000, fetchImpl: 
       'User-Agent': 'ScalerMarketingResearchBot/1.0',
       Accept: 'text/html,text/plain,application/xhtml+xml',
     },
+    signal: AbortSignal.timeout(10_000),
   });
 
   const html = await response.text();
@@ -27,6 +28,24 @@ export async function fetchPageText(url: string, maxLength = 12_000, fetchImpl: 
     text: extractPageText(html, maxLength),
     status: response.status,
   };
+}
+
+export function buildCompanyResearchUrls(website: string, maxPages = 7): string[] {
+  const paths = ['/', '/about', '/about-us', '/capabilities', '/services', '/industries', '/case-studies', '/careers', '/contact'];
+
+  try {
+    const baseUrl = new URL(website);
+    return [
+      ...new Set(
+        paths.map(path => {
+          const url = new URL(path, baseUrl.origin);
+          return url.toString().replace(/\/$/, '');
+        }),
+      ),
+    ].slice(0, maxPages);
+  } catch {
+    return [website];
+  }
 }
 
 export const pageFetchTool = createTool({

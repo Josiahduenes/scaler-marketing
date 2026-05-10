@@ -91,6 +91,8 @@ These do not live in Xano. Set these on the Mastra server in the repo-level `.en
 ```sh
 XANO_BASE_URL=https://x8ki-letl-twmt.n7.xano.io/api:scaler-outreach
 XANO_API_TOKEN=the-same-token-you-set-in-xano
+XANO_MIN_REQUEST_INTERVAL_MS=2200
+XANO_RATE_LIMIT_RETRY_MS=22000
 ```
 
 ### `XANO_BASE_URL`
@@ -126,6 +128,17 @@ Mastra sends:
 ```http
 Authorization: Bearer ${XANO_API_TOKEN}
 ```
+
+### Free-Tier Rate Limit Settings
+
+Xano free tier supports 10 requests per 20 seconds. Keep these Mastra-side environment variables set while building:
+
+```sh
+XANO_MIN_REQUEST_INTERVAL_MS=2200
+XANO_RATE_LIMIT_RETRY_MS=22000
+```
+
+`XANO_MIN_REQUEST_INTERVAL_MS` spaces live Xano calls out across all tools. `XANO_RATE_LIMIT_RETRY_MS` waits before retrying once if Xano still returns a rate-limit response.
 
 ## Required Smoke Tests
 
@@ -227,6 +240,13 @@ OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 WEB_SEARCH_API_KEY=
 WEB_SEARCH_BASE_URL=
+OUTREACH_CRON_ENABLED=false
+OUTREACH_CRON=0 8 * * 1-5
+OUTREACH_CRON_TIMEZONE=America/Chicago
+OUTREACH_CRON_TARGET_COUNT=10
+OUTREACH_CRON_MAX_SEARCH_RESULTS=50
+OUTREACH_CRON_MINIMUM_FIT_SCORE=75
+OUTREACH_CRON_LOCATIONS=Houston,Dallas,Charlotte,Cleveland,Fort Worth
 ```
 
 Slack review:

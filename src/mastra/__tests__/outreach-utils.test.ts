@@ -3,6 +3,8 @@ import { outreachDraftSchema, workflowInputSchema } from '../schemas/outreach';
 import {
   buildResearchEvidence,
   draftOutreach,
+  extractCompaniesFromSearchResults,
+  getCandidateDisqualifiers,
   inferDecisionMaker,
   normalizeDomain,
   scoreCompanyFit,
@@ -58,6 +60,56 @@ describe('outreach utilities', () => {
     const score = scoreCompanyFit(evidence, input.icpConfig);
     expect(score.tier).toBe('Reject');
     expect(score.disqualifierHits.length).toBeGreaterThan(0);
+  });
+
+  test('filters non-prospect search results before research', () => {
+    const companies = extractCompaniesFromSearchResults(
+      [
+        {
+          title: "Johannesburg's Most Trusted Import & Export Partner in South Africa",
+          url: 'https://www.flexagonfreight.co.za/import-export/',
+          snippet: 'Freight forwarding import export logistics',
+        },
+        {
+          title: 'Used CWP Centering Reels for Sale',
+          url: 'https://machinehub.com/listings/1665-cwp-pull-off-coil-reel-uncoiler-2-500-lbs',
+          snippet: 'Used industrial machinery listing Dallas',
+        },
+        {
+          title: 'What are the best examples for B2B ecommerce?',
+          url: 'https://www.quora.com/What-are-the-best-examples-for-B2B-ecommerce',
+          snippet: 'Question and answer forum',
+        },
+        {
+          title: 'Acme Industrial Equipment',
+          url: 'https://acmeindustrial.com/',
+          snippet: 'Industrial machinery manufacturer Houston request a quote',
+        },
+      ],
+      10,
+    );
+
+    expect(companies.map(company => company.domain)).toEqual(['acmeindustrial.com']);
+  });
+
+  test('hard rejects bad candidate page types during fit scoring', () => {
+    const input = workflowInputSchema.parse({});
+    const company = {
+      name: 'Used CWP Centering Reels for Sale',
+      website: 'https://machinehub.com',
+      domain: 'machinehub.com',
+      location: 'Dallas',
+      industry: 'Industrial Machinery Manufacturing',
+      sourceUrls: ['https://machinehub.com/listings/1665-cwp-pull-off-coil-reel-uncoiler-2-500-lbs'],
+    };
+    const evidence = buildResearchEvidence(company, 'Industrial machinery request a quote');
+    const score = scoreCompanyFit(evidence, input.icpConfig);
+
+    expect(getCandidateDisqualifiers(company)).toEqual(['marketplace-listing', 'not-company-homepage']);
+    expect(score.totalScore).toBe(0);
+    expect(score.tier).toBe('Reject');
+    expect(score.disqualifierHits).toContain('marketplace-listing');
+    expect(score.disqualifierHits).toContain('not-company-homepage');
   });
 
   test('validates outreach draft quality and flags unsupported claims', () => {

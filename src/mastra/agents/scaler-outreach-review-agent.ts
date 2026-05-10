@@ -21,6 +21,32 @@ const guardedDefaultHandler: ChannelHandler = async (thread, message, defaultHan
   await defaultHandler(thread, message);
 };
 
+function createSlackChannelsConfig() {
+  if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_SIGNING_SECRET) {
+    return undefined;
+  }
+
+  return {
+    adapters: {
+      slack: {
+        adapter: createSlackAdapter({
+          botToken: process.env.SLACK_BOT_TOKEN,
+          signingSecret: process.env.SLACK_SIGNING_SECRET,
+        }),
+        cards: true,
+        gateway: false,
+      },
+    },
+    threadContext: { maxMessages: 10 },
+    tools: true,
+    handlers: {
+      onDirectMessage: guardedDefaultHandler,
+      onMention: guardedDefaultHandler,
+      onSubscribedMessage: guardedDefaultHandler,
+    },
+  };
+}
+
 export const scalerOutreachReviewAgent = new Agent({
   id: 'scaler-outreach-review-agent',
   name: 'Scaler Outreach Review Agent',
@@ -58,25 +84,7 @@ Slack interaction style:
     updateDraftReviewStatusTool,
     ...(await getSuperhumanMailTools()),
   },
-  channels: {
-    adapters: {
-      slack: {
-        adapter: createSlackAdapter({
-          botToken: process.env.SLACK_BOT_TOKEN,
-          signingSecret: process.env.SLACK_SIGNING_SECRET,
-        }),
-        cards: true,
-        gateway: false,
-      },
-    },
-    threadContext: { maxMessages: 10 },
-    tools: true,
-    handlers: {
-      onDirectMessage: guardedDefaultHandler,
-      onMention: guardedDefaultHandler,
-      onSubscribedMessage: guardedDefaultHandler,
-    },
-  },
+  channels: createSlackChannelsConfig(),
   memory: new Memory({
     options: {
       workingMemory: {
