@@ -42,3 +42,5 @@ dist
 *.db-*
 .netlify
 .vercel
+*.wal
+.firecrawl/
