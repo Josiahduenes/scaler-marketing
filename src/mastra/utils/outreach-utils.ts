@@ -9,15 +9,27 @@ import type {
   WebSearchResult,
 } from '../schemas/outreach';
 
-const INDUSTRIAL_TERMS = [
+const SPECIALTY_INDUSTRIAL_TERMS = [
   'industrial',
-  'machinery',
-  'manufacturing',
-  'equipment',
-  'tooling',
-  'component',
-  'automation',
+  'machining',
+  'machined',
+  'grinding',
+  'precision grinding',
   'fabrication',
+  'specialty fabrication',
+  'contract machining',
+  'contract manufacturing',
+  'specialty processing',
+  'surface treatment',
+  'chemical processing',
+  'industrial cleaning',
+  'heat treating',
+  'welding',
+  'coating',
+  'plating',
+  'anodizing',
+  'assembly',
+  'automation',
   'engineered',
 ];
 
@@ -30,6 +42,15 @@ const DISQUALIFIER_TERMS = [
   'charity',
   'consumer',
   'retail',
+  'consumer-facing',
+  'd2c',
+  'direct-to-consumer',
+  'b2c',
+  'captive supplier',
+  'single customer',
+  'single-customer',
+  'sole supplier',
+  'sole customer',
 ];
 
 const BLOCKED_CONTENT_DOMAINS = [
@@ -167,6 +188,10 @@ export function getCandidateDisqualifiers(company: ProspectCompany): string[] {
     disqualifiers.push('wrong-company');
   }
 
+  if (/captive supplier|single customer|single-customer|sole supplier|sole customer/.test(text)) {
+    disqualifiers.push('single-customer dependency');
+  }
+
   return [...new Set(disqualifiers)];
 }
 
@@ -190,6 +215,7 @@ export function buildResearchEvidence(company: ProspectCompany, pageText: string
   const combined = `${pageText} ${searchSnippets.join(' ')}`;
   const lower = combined.toLowerCase();
   const evidenceUrls = [...new Set(company.sourceUrls.length > 0 ? company.sourceUrls : [company.website])];
+  const revenueSignals = extractRevenueSignals(combined);
   const websiteObservations = [
     hasAny(lower, ['request a quote', 'contact us', 'get a quote'])
       ? 'Website has a basic sales/contact path.'
@@ -211,44 +237,57 @@ export function buildResearchEvidence(company: ProspectCompany, pageText: string
         ? 'weak'
         : 'missing',
     caseStudyPresence: hasAny(lower, ['case study', 'case studies', 'success story']) ? 'present' : 'absent',
+    revenueSignals,
     tradeShowSignals: pickSignals(combined, ['trade show', 'expo', 'conference', 'booth', 'exhibitor']),
     linkedInContentSignals: pickSignals(combined, ['linkedin', 'post', 'company update']),
     hiringSignals: pickSignals(combined, ['hiring', 'careers', 'sales manager', 'marketing coordinator']),
     acquisitionOrRebrandSignals: pickSignals(combined, ['acquired', 'acquisition', 'rebrand', 'new brand', 'portfolio company']),
     evidenceUrls,
     confidence: Math.min(0.95, 0.45 + evidenceUrls.length * 0.1 + websiteObservations.length * 0.05),
-    summary: `${company.name} appears to be ${company.industry || 'an industrial company'} with public website evidence available for review.`,
+    summary: `${company.name} appears to be ${company.industry || 'an industrial company'}${company.revenueEstimate ? ` and estimated revenue around ${company.revenueEstimate}` : ''} with public website evidence available for review.`,
   };
 }
 
 export function scoreCompanyFit(evidence: ResearchEvidence, icpConfig: IcpConfig): FitScore {
   const company = evidence.company;
-  const text = `${company.name} ${company.industry} ${company.location} ${evidence.summary} ${evidence.websiteObservations.join(' ')}`.toLowerCase();
+  const text = `${company.name} ${company.industry} ${company.location} ${company.revenueEstimate || ''} ${company.ownershipSignal || ''} ${evidence.summary} ${evidence.websiteObservations.join(' ')}`.toLowerCase();
   const disqualifierHits = [
     ...getCandidateDisqualifiers(company),
     ...icpConfig.disqualifiers.filter(disqualifier => text.includes(disqualifier.toLowerCase())),
     ...DISQUALIFIER_TERMS.filter(term => text.includes(term)),
   ];
 
+  if (/captive supplier|single customer|single-customer|sole supplier|sole customer/.test(text)) {
+    disqualifierHits.push('single-customer dependency');
+  }
+
   if (company.employeeEstimate !== undefined && company.employeeEstimate < 50) {
     disqualifierHits.push('under 50 employees');
+  }
+
+  const parsedRevenue = parseRevenueEstimate(company.revenueEstimate);
+  if (parsedRevenue !== undefined && parsedRevenue < icpConfig.minimumRevenue) {
+    disqualifierHits.push('under $20M revenue');
   }
 
   let score = 0;
   const reasons: string[] = [];
   const missingData: string[] = [];
 
-  if (hasAny(text, INDUSTRIAL_TERMS) || icpConfig.industries.some(industry => text.includes(industry.toLowerCase()))) {
+  if (
+    hasAny(text, SPECIALTY_INDUSTRIAL_TERMS) ||
+    icpConfig.industries.some(industry => text.includes(industry.toLowerCase()))
+  ) {
     score += 25;
-    reasons.push('Matches industrial manufacturing category.');
+    reasons.push('Matches specialty industrial services category.');
   } else {
-    missingData.push('industrial category confidence');
+    missingData.push('specialty industrial category confidence');
   }
 
   if (company.employeeEstimate) {
     if (company.employeeEstimate >= icpConfig.employeeRange.min && company.employeeEstimate <= icpConfig.employeeRange.max) {
       score += 20;
-      reasons.push('Employee estimate fits the 201-500 ICP range.');
+      reasons.push(`Employee estimate fits the ${icpConfig.employeeRange.min}-${icpConfig.employeeRange.max} ICP range.`);
     } else if (company.employeeEstimate >= 50) {
       score += 10;
       reasons.push('Employee estimate is above the minimum disqualifier threshold.');
@@ -258,14 +297,34 @@ export function scoreCompanyFit(evidence: ResearchEvidence, icpConfig: IcpConfig
     missingData.push('employee estimate');
   }
 
+  if (parsedRevenue !== undefined) {
+    if (parsedRevenue >= icpConfig.revenueRange.min && parsedRevenue <= icpConfig.revenueRange.max) {
+      score += 20;
+      reasons.push('Revenue estimate fits the target ICP range.');
+    } else if (parsedRevenue >= icpConfig.minimumRevenue) {
+      score += 10;
+      reasons.push('Revenue estimate clears the minimum revenue floor.');
+    }
+  } else {
+    missingData.push('revenue estimate');
+  }
+
   if (icpConfig.geos.some(geo => company.location.toLowerCase().includes(geo.toLowerCase()))) {
     score += 15;
     reasons.push('Company is in a priority geography.');
-  } else if (/tx|oh|nc|sc|co|texas|ohio|carolina|colorado/i.test(company.location)) {
+  } else if (/tx|oh|nc|sc|co|texas|ohio|carolina|colorado|usa|united states/i.test(company.location)) {
     score += 8;
     reasons.push('Company is in a priority state/region.');
   } else {
     missingData.push('priority geography match');
+  }
+
+  const normalizedText = normalizeForMatch(text);
+  if (icpConfig.endMarkets.some(endMarket => normalizedText.includes(normalizeForMatch(endMarket)))) {
+    score += 10;
+    reasons.push('Company serves a priority end market.');
+  } else {
+    missingData.push('end market fit');
   }
 
   if (evidence.ctaQuality === 'weak' || evidence.ctaQuality === 'missing') {
@@ -395,11 +454,118 @@ function inferLocation(text: string): string {
 }
 
 function inferIndustry(text: string): string {
-  return hasAny(text.toLowerCase(), INDUSTRIAL_TERMS) ? 'Industrial Machinery Manufacturing' : 'Unknown';
+  return hasAny(text.toLowerCase(), SPECIALTY_INDUSTRIAL_TERMS) ? 'Specialty Industrial B2B Services' : 'Unknown';
 }
 
 function hasAny(text: string, terms: string[]): boolean {
   return terms.some(term => text.includes(term.toLowerCase()));
+}
+
+export function extractRevenueEstimateFromText(text: string): string | undefined {
+  const matches = extractRevenueMatches(text);
+  return matches[0];
+}
+
+function parseRevenueEstimate(revenueEstimate?: string): number | undefined {
+  if (!revenueEstimate) return undefined;
+
+  const cleaned = revenueEstimate.toLowerCase().replace(/[, ]+/g, '');
+
+  const shorthandMatch = cleaned.match(/^\$?(\d+(?:\.\d+)?)([mbk])?$/);
+  if (shorthandMatch) {
+    const value = Number(shorthandMatch[1]);
+    const unit = shorthandMatch[2];
+    if (unit === 'b') return value * 1_000_000_000;
+    if (unit === 'm') return value * 1_000_000;
+    if (unit === 'k') return value * 1_000;
+    return value;
+  }
+
+  const rangeMatch = cleaned.match(/^\$?(\d+(?:\.\d+)?)([mbk])?[-–]\$?(\d+(?:\.\d+)?)([mbk])?$/);
+  if (rangeMatch) {
+    const low = Number(rangeMatch[1]);
+    const lowUnit = rangeMatch[2];
+    if (lowUnit === 'b') return low * 1_000_000_000;
+    if (lowUnit === 'm') return low * 1_000_000;
+    if (lowUnit === 'k') return low * 1_000;
+    return low;
+  }
+
+  const wordMatch = cleaned.match(/^\$?(\d+(?:\.\d+)?)(million|billion|thousand)$/);
+  if (wordMatch) {
+    const value = Number(wordMatch[1]);
+    const unit = wordMatch[2];
+    if (unit === 'billion') return value * 1_000_000_000;
+    if (unit === 'million') return value * 1_000_000;
+    if (unit === 'thousand') return value * 1_000;
+  }
+
+  return undefined;
+}
+
+function extractRevenueSignals(text: string): string[] {
+  return extractRevenueMatches(text).map(revenue => `Revenue signal detected: ${revenue}.`);
+}
+
+function extractRevenueMatches(text: string): string[] {
+  const normalized = text.replace(/[–—]/g, '-');
+  const matches: string[] = [];
+  const patterns: RegExp[] = [
+    /(?:annual\s+)?(?:revenue|sales|turnover)[^$]{0,60}\$?\s?(\d+(?:\.\d+)?)\s*(billion|million|m|b|k)\s*-\s*\$?\s?(\d+(?:\.\d+)?)\s*(billion|million|m|b|k)/gi,
+    /(?:annual\s+)?(?:revenue|sales|turnover)[^$]{0,60}\$?\s?(\d+(?:\.\d+)?)\s*(billion|million|m|b|k)\s*(?:to|and)\s*\$?\s?(\d+(?:\.\d+)?)\s*(billion|million|m|b|k)/gi,
+    /(?:annual\s+)?(?:revenue|sales|turnover)[^$]{0,60}\$?\s?(\d+(?:\.\d+)?)\s*-\s*\$?\s?(\d+(?:\.\d+)?)(?:\s*(billion|million|m|b|k))?/gi,
+    /(?:annual\s+)?(?:revenue|sales|turnover)[^$]{0,60}\$?\s?(\d+(?:\.\d+)?)\s*(billion|million|m|b|k)/gi,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of normalized.matchAll(pattern)) {
+      const normalizedMatch = normalizeRevenueMatch(match);
+      if (normalizedMatch) matches.push(normalizedMatch);
+    }
+  }
+
+  return [...new Set(matches)];
+}
+
+function normalizeRevenueMatch(match: RegExpMatchArray): string | undefined {
+  const values = match.slice(1).filter(Boolean);
+  if (values.length === 0) return undefined;
+
+  if (values.length >= 4) {
+    const first = formatRevenueValue(Number(values[0]), values[1]);
+    const secondUnit = values[3] || values[1];
+    const second = formatRevenueValue(Number(values[2]), secondUnit);
+    return `${first}-${second}`;
+  }
+
+  if (values.length === 3) {
+    const first = formatRevenueValue(Number(values[0]), values[2]);
+    const second = formatRevenueValue(Number(values[1]), values[2]);
+    return `${first}-${second}`;
+  }
+
+  if (values.length === 2) {
+    return formatRevenueValue(Number(values[0]), values[1]);
+  }
+
+  return undefined;
+}
+
+function formatRevenueValue(amount: number, unit?: string): string {
+  const normalizedUnit = String(unit || '').toLowerCase();
+  const formattedAmount = Number.isInteger(amount) ? String(amount) : trimTrailingZeros(amount);
+
+  if (normalizedUnit === 'billion' || normalizedUnit === 'b') return `$${formattedAmount}B`;
+  if (normalizedUnit === 'million' || normalizedUnit === 'm') return `$${formattedAmount}M`;
+  if (normalizedUnit === 'thousand' || normalizedUnit === 'k') return `$${formattedAmount}K`;
+  return `$${formattedAmount}`;
+}
+
+function trimTrailingZeros(value: number): string {
+  return value
+    .toFixed(2)
+    .replace(/\.00$/, '')
+    .replace(/(\.\d)0$/, '$1');
 }
 
 function pickSignals(text: string, terms: string[]): string[] {
@@ -409,4 +575,13 @@ function pickSignals(text: string, terms: string[]): string[] {
 
 function sentenceCase(value: string): string {
   return value.length === 0 ? value : value[0].toLowerCase() + value.slice(1);
+}
+
+function normalizeForMatch(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[\/,._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

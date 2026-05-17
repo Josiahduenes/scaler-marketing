@@ -4,6 +4,7 @@ import {
   buildResearchEvidence,
   draftOutreach,
   extractCompaniesFromSearchResults,
+  extractRevenueEstimateFromText,
   getCandidateDisqualifiers,
   inferDecisionMaker,
   normalizeDomain,
@@ -42,6 +43,11 @@ describe('outreach utilities', () => {
     const score = scoreCompanyFit(evidence, input.icpConfig);
     expect(score.totalScore).toBeGreaterThanOrEqual(75);
     expect(score.tier).not.toBe('Reject');
+  });
+
+  test('extracts revenue estimates from public text', () => {
+    expect(extractRevenueEstimateFromText('The company reported annual revenue of $75 million in 2024.')).toBe('$75M');
+    expect(extractRevenueEstimateFromText('Revenue: $50 million to $100 million')).toBe('$50M-$100M');
   });
 
   test('enforces hard disqualifiers', () => {

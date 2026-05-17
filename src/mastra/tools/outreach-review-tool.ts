@@ -367,6 +367,7 @@ function toResearchEvidence(data: unknown): ResearchEvidence | undefined {
       websiteObservations: z.array(z.string()).default([]),
       ctaQuality: z.enum(['strong', 'weak', 'missing', 'unknown']).default('unknown'),
       caseStudyPresence: z.enum(['present', 'absent', 'unknown']).default('unknown'),
+      revenueSignals: z.array(z.string()).default([]),
       tradeShowSignals: z.array(z.string()).default([]),
       linkedInContentSignals: z.array(z.string()).default([]),
       hiringSignals: z.array(z.string()).default([]),

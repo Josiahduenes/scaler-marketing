@@ -2,7 +2,7 @@
 
 ## Summary
 
-Build a Mastra-based cold outreach system for Scaler Marketing that researches high-fit industrial machinery manufacturers, scores ICP fit, drafts source-backed cold emails, persists reviewable records in Xano, and supports human review through Mastra Studio and Slack.
+Build a Mastra-based cold outreach system for Scaler Marketing that researches high-fit specialty industrial B2B service companies, scores ICP fit, drafts source-backed cold emails, persists reviewable records in Xano, and supports human review through Mastra Studio and Slack.
 
 V1 is a research, drafting, review, and audit system. It does not autonomously send email, automate LinkedIn, book meetings, or run drip campaigns.
 
@@ -29,7 +29,7 @@ Verification status:
 
 Create a repeatable workflow that can:
 
-1. Find candidate U.S. industrial machinery manufacturers.
+1. Find candidate U.S. specialty industrial B2B service companies.
 2. Deduplicate companies by normalized domain.
 3. Research public website/search evidence.
 4. Score fit against the default ICP.
@@ -43,34 +43,36 @@ Create a repeatable workflow that can:
 
 Target:
 
-- Industry: Industrial Machinery Manufacturing
-- Size: 201-500 employees
-- Geography: U.S., prioritized hubs: Houston, Dallas, Charlotte, Cleveland, Fort Worth
-- Ownership: privately held, family-owned, or PE-backed
-- Decision makers: VP Sales, COO, President/Owner
-- Champions: Marketing Coordinator, Sales Manager
+- Industry: Specialty industrial services, contract manufacturing, specialty processing, precision fabrication
+- Size: 200-1,000 employees, or roughly $50M-$250M revenue
+- Geography: United States, with priority hubs in Houston, Dallas, Charlotte, Cleveland, and Fort Worth
+- Ownership: private, PE-backed, or public
+- End markets: general industrial, oil & gas / energy, medical device / life sciences manufacturing
+- Decision makers: VP Sales, VP of Business Development, President
+- Champions: Marketing Manager, Marketing Director
 
 Qualifying signals:
 
-- Outdated or generic website
-- Weak CTA or no conversion path
-- No case studies or proof of process
-- Trade show-heavy pipeline
-- Hiring sales or marketing roles
-- Active LinkedIn but weak content strategy
-- Recent acquisition or rebrand
-- Estimated revenue above $20M
+- Outdated website with no case studies or proof of process
+- Active sales team with no digital support
+- Serving multiple end markets with no clear positioning per vertical
+- Recent expansion or new service line launch
+- PE-backed with a growth mandate
+- Hiring BD or sales roles
+- Visible at trade shows with no follow-up infrastructure
+- Website reads like a brochure from 2012
 
 Disqualifiers:
 
-- Under 50 employees
-- Consumer-facing
-- Nonprofit or education
-- International-only
+- Under $20M revenue or fewer than 50 employees
+- Purely consumer-facing work
+- No defined B2B sales motion
+- Single-customer dependency (captive supplier)
+- International-only operations
 
 Positioning:
 
-Scaler builds the website and marketing system that turns engineering expertise into consistent inbound leads.
+For specialty industrial service companies that have built their reputation on precision and reliability but whose website and marketing do not reflect it, Scaler builds the digital presence and lead gen system that matches the quality of the work they actually do.
 
 ## Architecture
 

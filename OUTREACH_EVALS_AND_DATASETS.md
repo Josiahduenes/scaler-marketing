@@ -69,17 +69,17 @@ Use consistent labels. The dataset is only useful if the ground truth is stricte
 
 ### Accept The Lead When
 
-- The company is a real U.S. industrial machinery manufacturer or close adjacent fit.
-- Employee count appears plausibly within or near the target range.
+- The company is a real U.S. specialty industrial B2B service company or close adjacent fit.
+- Revenue or employee count appears plausibly within or near the target range.
 - There are at least two useful public signals with source URLs.
-- The site, positioning, CTA, case-study, trade-show, hiring, or rebrand signals suggest Scaler can credibly help.
+- The site, positioning, CTA, case-study, trade-show, hiring, expansion, or service-line signals suggest Scaler can credibly help.
 - No hard disqualifier is present.
 
 ### Reject The Lead When
 
-- It is clearly consumer-facing, nonprofit, education, international-only, or too small.
+- It is clearly consumer-facing, nonprofit, education, international-only, too small, or under the revenue floor.
 - The workflow cannot source the company well enough.
-- The company is outside industrial manufacturing without a strong adjacent reason.
+- The company is outside specialty industrial services without a strong adjacent reason.
 - The recommendation depends on guessed private data.
 
 ### Research Quality Labels
@@ -222,6 +222,7 @@ Use these issue strings in `researchIssues`, `scoringIssues`, and `draftIssues` 
 - `wrong-company`
 - `bad-industry-fit`
 - `too-small`
+- `too-little-revenue`
 - `international-only`
 - `consumer-facing`
 - `thin-sourcing`
@@ -244,7 +245,7 @@ The workflow now blocks obvious non-prospect candidates before research:
 - Marketplace/listing domains such as `machinehub.com`, `machinio.com`, `ebay.com`, and `amazon.com`.
 - Non-U.S. country-code domains such as `.co.za`, `.co.uk`, and `.com.au`.
 - Listing/question/article pages such as `/listings/`, `for-sale`, `Used ... for Sale`, and `What are ...`.
-- Freight/import/export/logistics companies that are not industrial machinery manufacturers.
+- Freight/import/export/logistics companies that are not specialty industrial service companies.
 
 These same patterns are hard disqualifiers in fit scoring, so bad candidates receive `tier: "Reject"` and `totalScore: 0` instead of soft rejection by threshold.
 

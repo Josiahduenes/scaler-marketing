@@ -21,6 +21,7 @@ import {
   buildResearchEvidence,
   draftOutreach,
   extractCompaniesFromSearchResults,
+  extractRevenueEstimateFromText,
   inferDecisionMaker,
   normalizeDomain,
   scoreCompanyFit,
@@ -49,9 +50,16 @@ const workflowStateSchema = z.object({
 type WorkflowState = z.infer<typeof workflowStateSchema>;
 
 const DISCOVERY_QUERY_TEMPLATES = [
-  (location: string) => `${location} industrial machinery manufacturer company website`,
-  (location: string) => `${location} industrial machinery manufacturers contact us`,
-  (location: string) => `${location} custom machine builder manufacturer`,
+  (location: string) => `${location} contract machining company`,
+  (location: string) => `${location} specialty fabrication industrial services`,
+  (location: string) => `${location} precision grinding surface treatment`,
+  (location: string) => `${location} chemical processing industrial cleaning`,
+];
+
+const REVENUE_QUERY_TEMPLATES = [
+  (companyName: string) => `"${companyName}" revenue`,
+  (companyName: string) => `"${companyName}" annual revenue`,
+  (companyName: string) => `"${companyName}" sales`,
 ];
 
 const scheduledOutreachInput = workflowInputSchema.parse({
@@ -108,7 +116,7 @@ const createWorkflowRun = createStep({
 
 const discoverCandidateCompanies = createStep({
   id: 'discover-candidate-companies',
-  description: 'Search by ICP location and industrial manufacturing signals to produce candidate companies.',
+  description: 'Search by ICP location and specialty industrial service signals to produce candidate companies.',
   inputSchema: workflowStateSchema,
   outputSchema: workflowStateSchema,
   execute: async ({ inputData }) => {
@@ -178,16 +186,36 @@ const researchCompanies = createStep({
         }
       }
 
+      const revenueSearchResults: WebSearchResult[] = [];
+      for (const buildQuery of REVENUE_QUERY_TEMPLATES) {
+        try {
+          revenueSearchResults.push(...(await runWebSearch(buildQuery(company.name), 5)));
+        } catch {
+          // Revenue searches are best-effort. If they fail, keep the company without a hard stop.
+        }
+      }
+
+      const revenueText = revenueSearchResults.map(result => `${result.title} ${result.snippet}`).join('\n');
+      const inferredRevenueEstimate =
+        company.revenueEstimate || extractRevenueEstimateFromText(`${pageTexts.join('\n\n')}\n${revenueText}`);
+
       const researchedCompany = {
         ...company,
-        sourceUrls: [...new Set([...company.sourceUrls, ...fetchedUrls])],
+        revenueEstimate: inferredRevenueEstimate,
+        sourceUrls: [...new Set([...company.sourceUrls, ...fetchedUrls, ...revenueSearchResults.map(result => result.url)])],
       };
       const pageText =
         pageTexts.length > 0
           ? pageTexts.join('\n\n')
           : `Unable to fetch usable website text from ${company.website}.`;
 
-      researched.push(buildResearchEvidence(researchedCompany, pageText));
+      researched.push(
+        buildResearchEvidence(
+          researchedCompany,
+          pageText,
+          revenueSearchResults.map(result => `${result.title} ${result.snippet}`),
+        ),
+      );
     }
 
     return {
@@ -199,7 +227,7 @@ const researchCompanies = createStep({
 
 const scoreFit = createStep({
   id: 'score-fit',
-  description: 'Score researched companies against the Segment A ICP.',
+  description: 'Score researched companies against the Segment A specialty industrial services ICP.',
   inputSchema: workflowStateSchema,
   outputSchema: workflowStateSchema,
   execute: async ({ inputData }) => {
